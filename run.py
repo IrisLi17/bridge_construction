@@ -5,7 +5,7 @@ from utils.make_env_utils import make_env, get_env_kwargs, configure_logger
 from vec_env.subproc_vec_env import SubprocVecEnv
 from utils.wrapper import VecPyTorch
 from torch_algorithms import PPO, PPO_dev
-from torch_algorithms.policies import HybridAttentionPolicy, MultiDiscreteAttentionPolicy
+from torch_algorithms.policies import MultiDiscreteAttentionPolicy
 from torch_algorithms import logger
 import csv
 import multiprocessing
@@ -17,14 +17,9 @@ def main(args):
     configure_logger(log_dir)
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     # Make env
-    env_kwargs = get_env_kwargs(args.env_id, args.horizon, args.stable_reward_coef, args.rotation_penalty_coef,
-                                args.height_coef, args.reward_type, args.no_adaptive_number, args.random_size,
-                                args.exclude_time, args.smooth_coef, args.min_num_blocks, args.cost_coef,
-                                args.smooth_max, args.cl_type, args.discrete_height, args.observe_skyline,
-                                args.skyline_dim, args.random_mode, args.action_scale, args.center_y, args.cons_coef,
-                                args.rotation_low, args.rotation_high, args.restart_rate, args.noop,
-                                args.robot, args.friction_low, args.friction_high, args.force_scale,
-                                args.adaptive_primitive)
+    env_kwargs = get_env_kwargs(args.env_id, args.horizon, args.random_size, args.min_num_blocks, args.discrete_height,
+                                args.random_mode, args.action_scale, args.restart_rate, args.noop, args.robot,
+                                args.force_scale, args.adaptive_primitive)
     max_episode_steps = env_kwargs.get("max_episode_steps", None)
     env_kwargs.pop("max_episode_steps", None)
     env_kwargs.update({"need_visual": args.play, "render": args.primitive and args.play, "primitive": args.primitive,
@@ -50,12 +45,7 @@ def main(args):
     eval_env = VecPyTorch(eval_env, device)
 
     aux_head = (args.algo == "ppg" and args.policy_arch == "dual")
-    if args.policy == "attention":
-        policy = HybridAttentionPolicy(env.observation_space.shape, env_kwargs['num_blocks'], env.action_space.shape[0] - 1,
-                                       args.hidden_size, args.n_attention_blocks, object_dim=env.get_attr("object_dim")[0],
-                                       has_cliff=env.get_attr("has_cliff")[0],
-                                       aux_head=aux_head, arch=args.policy_arch, base_kwargs={'n_heads': args.n_heads})
-    elif args.policy == "discrete_mlp":
+    if args.policy == "discrete_mlp":
         # Use different bins for different dims: y dim, z dim, rotation
         if "_" in args.num_bin:
             num_bin_list = args.num_bin.split("_")
@@ -72,7 +62,7 @@ def main(args):
                                               has_cliff=env.get_attr("has_cliff")[0], aux_head=aux_head,
                                               arch=args.policy_arch, base_kwargs={'n_heads': args.n_heads},
                                               noop=args.noop, n_values=args.v_ensemble,
-                                              refined_action=args.refined_action, bilevel_action=args.bilevel_action)
+                                              bilevel_action=args.bilevel_action)
         # policy = MultiDiscretePolicy(env.observation_space.shape, env_kwargs['num_blocks'], env.action_space.shape[0] - 1, num_bin=20,
         #                              base_kwargs={'recurrent': False, 'hidden_size': hidden_size})
     else:
@@ -100,18 +90,17 @@ def main(args):
                     use_linear_clip_decay=use_linear_clip_decay,
                     )
     elif args.algo == "ppg":
-        model = PPO_dev(env, policy, device, n_steps=args.n_steps, nminibatches=args.nminibatches, noptepochs=args.noptepochs,
-                        gamma=args.gamma, lam=args.lam, learning_rate=args.learning_rate, cliprange=args.cliprange, ent_coef=args.ent_coef,
-                        max_grad_norm=args.max_grad_norm, use_linear_lr_decay=use_linear_lr_decay,
-                        use_linear_clip_decay=use_linear_clip_decay, inf_horizon=args.inf_horizon,
-                        bc_coef=args.bc_coef, n_vf_rollout=args.aux_freq, nvfepochs=args.nauxepochs, ewma_decay=args.ewma_decay, kl_beta=args.kl_beta,
-                        auxiliary_task=args.auxiliary_task, aux_coef=args.auxiliary_coef, exp_update=args.exp_update,
-                        eval_env=eval_env, priority_type=args.priority_type, optimizer=args.optimizer,
-                        manual_filter_state=args.manual_filter_state,
+        model = PPO_dev(env, policy, device, n_steps=args.n_steps, nminibatches=args.nminibatches,
+                        noptepochs=args.noptepochs, gamma=args.gamma, lam=args.lam, learning_rate=args.learning_rate,
+                        cliprange=args.cliprange, ent_coef=args.ent_coef, max_grad_norm=args.max_grad_norm,
+                        use_linear_lr_decay=use_linear_lr_decay, bc_coef=args.bc_coef, n_vf_rollout=args.aux_freq,
+                        nvfepochs=args.nauxepochs, ewma_decay=args.ewma_decay,
+                        use_linear_clip_decay=use_linear_clip_decay, auxiliary_task=args.auxiliary_task,
+                        aux_coef=args.auxiliary_coef, inf_horizon=args.inf_horizon, eval_env=eval_env,
+                        priority_type=args.priority_type, manual_filter_state=args.manual_filter_state,
                         state_replay_size=args.state_replay_size, filter_priority=args.filter_priority,
                         nvfminibatches=args.nvfminibatches, priority_decay=args.priority_decay,
-                        clip_priority=args.clip_priority,
-                        )
+                        clip_priority=args.clip_priority)
     else:
         raise NotImplementedError
 

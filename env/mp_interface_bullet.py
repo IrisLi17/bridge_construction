@@ -4,10 +4,9 @@ import random
 from itertools import product, combinations
 from env.motion_planners.rrt_connect import birrt
 from env.robots import ArmRobot, Kinova2f85Robot, UR2f85Robot, XArm7Robot
-from env.bullet_rotations import quat_mul, quat_rot_vec, quat_conjugate, euler2quat, quat_diff, quat2mat
+from env.bullet_rotations import quat_mul, quat_rot_vec, euler2quat, quat_diff
 import time, os, shutil
 from env.bridge_construction_bullet import BulletBridgeConstructionHigh, PhysClientWrapper, BulletBridgeConstructionLow
-# import env.ikfast.ikmodule as ikmodule
 import matplotlib.pyplot as plt
 
 MAX_DISTANCE = 0.01
@@ -62,15 +61,6 @@ def set_joint_positions(wrapped_p, body, joints, q):
         wrapped_p.resetJointState(body, joints[i], q[i])
 
 
-def get_moving_links(wrapped_p, body, joints):
-    res = []
-    for i in range(len(joints)):
-        info = wrapped_p.getJointInfo(body, joints[i])
-        if info[2] != p.JOINT_FIXED:
-            res.append(info[0])  # Assume the same link index as joint index
-    return res
-
-
 def get_movable_joints(wrapped_p, body):
     res = []
     for i in range(wrapped_p.getNumJoints(body)):
@@ -100,25 +90,10 @@ def get_custom_limits(wrapped_p, body, joints, custom_limits: dict, circular_lim
     return low_limits, high_limits
 
 
-def get_joint_ancestors(wrapped_p, body, joint):
-    ancestors = []
-    parent = joint
-    while parent != -1:
-        info = wrapped_p.getJointInfo(body, parent)
-        parent = info[-1]
-        ancestors.append(parent)
-    return ancestors[:-1]
-
-
 def get_joint_positions(wrapped_p, body, joints):
     joint_states = wrapped_p.getJointStates(body, joints)
     joint_positions, *_ = zip(*joint_states)
     return joint_positions
-
-
-def get_loaded_model_info(wrapped_p, body):
-    body_info = wrapped_p.getBodyInfo(body)
-    return body_info[0]
 
 
 # TODO: circular support
@@ -130,7 +105,6 @@ def get_difference_fn(wrapped_p, body, joints):
     return fn
 
 
-#
 def get_refine_fn(wrapped_p, body, joints, num_steps):
     def fn(q1, q2):
         q1 = np.array(q1)
@@ -171,7 +145,6 @@ class ArmPose(object):
         self.wrapped_p = wrapped_p
         self.body = body
         self.conf = conf
-        # self.joints = get_movable_joints(wrapped_p, body)
         self.joints = joints
         assert len(self.joints) == len(self.conf), (self.joints, self.conf)
 
@@ -247,25 +220,6 @@ class Planner(object):
         movable_pos, info = self.robot.run_ik(pos, orn)
         if len(np.array(movable_pos).shape) == 1:
             movable_pos = [movable_pos[:self.robot.ndof]]
-        # print(np.array(pos) - np.array(self.robot.base_pos), quat2mat(orn))
-        # movable_pos = ikmodule.ik(np.array(pos) - np.array(self.robot.base_pos), quat2mat(orn))
-        # print(type(movable_pos))
-        # info = {'is_success': movable_pos.shape != ()}
-        # print(info, movable_pos)
-        # set_joint_positions(self.p, self.robot_id, get_movable_joints(self.p, self.robot_id), movable_pos)
-        # ik_pos = self.robot.get_end_effector_pos()
-        # ik_orn = self.robot.get_end_effector_orn(as_type="quat")
-        # error_pos = np.linalg.norm(pos - ik_pos)
-        # error_orn = np.linalg.norm(orn - ik_orn)
-        # info = {'pos': ik_pos, 'orn': ik_orn, 'error_pos': error_pos, 'error_orn': error_orn}
-        # movable_joints = get_movable_joints(self.p, self.robot_id)
-        # lower_limits, higher_limits = get_custom_limits(self.p, self.robot_id, movable_joints, custom_limits,
-        #                                                 circular_limits=CIRCULAR_LIMITS)
-        #
-        # eef_link_idx = 8
-        # movable_pos = self.p.calculateInverseKinematics(self.robot_id, eef_link_idx, pos[:3], pos[3:],
-        #                                                 lowerLimits=lower_limits, upperLimits=higher_limits
-        #                                                 )
         return movable_pos, info
 
     def check_qpos_collision(self, qs, q_finger, grasp=None, disabled_collisions=set(), start_disabled_collisions=set(),
@@ -275,17 +229,17 @@ class Planner(object):
         collision_time = 0
         t1 = time.time()
         collision_fn = self.get_collision_fn(self.robot_id, self.moving_joints, self.fixed,
-                                             grasp.attachment() if grasp is not None else [], self_collisions=True,
-                                             disabled_collisions=disabled_collisions, custom_limits={})
+                                             grasp.attachment() if grasp is not None else [],
+                                             disabled_collisions=disabled_collisions)
         q_start = get_joint_positions(self.p, self.robot_id, self.moving_joints)
         if qs is None:
             qs = [q_start[:self.robot.ndof]]
         if not disable_start_collision:
             if len(start_disabled_collisions):
-                start_collision_fn = self.get_collision_fn(
-                    self.robot_id, self.moving_joints, self.fixed, grasp.attachment() if grasp is not None else [],
-                    self_collisions=True, disabled_collisions=set.union(disabled_collisions, start_disabled_collisions),
-                    custom_limits={})
+                start_collision_fn = self.get_collision_fn(self.robot_id, self.moving_joints, self.fixed,
+                                                           grasp.attachment() if grasp is not None else [],
+                                                           disabled_collisions=set.union(disabled_collisions,
+                                                                                         start_disabled_collisions))
             else:
                 start_collision_fn = collision_fn
             get_fn_time += time.time() - t1
@@ -297,7 +251,6 @@ class Planner(object):
         collision_time += time.time() - t1
 
         t1 = time.time()
-        # state_id = self.p.saveState()
         io_time += time.time() - t1
         t1 = time.time()
         is_collision = []
@@ -307,8 +260,6 @@ class Planner(object):
         is_collision = np.array(is_collision)
         collision_time += time.time() - t1
         t1 = time.time()
-        # self.p.restoreState(stateId=state_id)
-        # self.p.removeState(state_id)
         io_time += time.time() - t1
         if self.verbose > 1:
             print("\tGet fn time", get_fn_time)
@@ -322,7 +273,6 @@ class Planner(object):
         plan_path_time = 0
         t1 = time.time()
         self.p.restoreState(stateId=plan_state_id)
-        # state_id = self.p.saveState()
         save_load_time += time.time() - t1
         q_start = get_joint_positions(self.p, self.robot_id, self.moving_joints)
         if q_dest is None:
@@ -337,18 +287,11 @@ class Planner(object):
         )
         plan_path_time += time.time() - t1
         if path is None:
-            # t1 = time.time()
-            # self.p.restoreState(stateId=state_id)
-            # self.p.removeState(state_id)
-            # save_load_time += time.time() - t1
-            # print("Save load time", save_load_time)
             return None
         if grasp is not None and len(path) > 1:
             path = [path[0]] + \
                    [tuple(list(p[:self.robot.ndof]) + list(q_finger)) for p in path[1:]]
         t1 = time.time()
-        # self.p.restoreState(stateId=state_id)
-        # self.p.removeState(state_id)
         save_load_time += time.time() - t1
         if self.verbose > 1:
             print("\tSave load time", save_load_time, "plan path time", plan_path_time)
@@ -362,8 +305,6 @@ class Planner(object):
         if teleport:
             path = [armpose1.conf, armpose2.conf]
         else:
-            # armpose1.assign(self.p)
-            # obstacles = fixed + assign_fluent_state(fluents)
             obstacles = self.fixed
             if self.verbose:
                 print(
@@ -394,56 +335,9 @@ class Planner(object):
         distance_fn = self.get_distance_fn(body, joints, weights=weights)
         extend_fn = self.get_extend_fn(
             body, joints, resolutions=resolutions)
-        collision_fn = self.get_collision_fn(body, joints, obstacles, attachments, self_collisions,
-                                             disabled_collisions,
-                                             custom_limits=custom_limits, max_distance=max_distance)
+        collision_fn = self.get_collision_fn(body, joints, obstacles, attachments, disabled_collisions)
         preparation_time += time.time() - t1
-        # print("preparation time", time.time() - t1)
 
-        # def check_initial_end(start_conf, end_conf, collision_fn):
-        #     t1 = time.time()
-        #     if collision_fn(end_conf):
-        #         if False:
-        #             width = 500
-        #             height = 500
-        #             view_matrix = self.p.computeViewMatrixFromYawPitchRoll(cameraTargetPosition=[1.3, 0.6, 0.05],
-        #                                                                    distance=2.5,
-        #                                                                    yaw=-45,
-        #                                                                    pitch=-20,
-        #                                                                    roll=0,
-        #                                                                    upAxisIndex=2)
-        #             proj_matrix = self.p.computeProjectionMatrixFOV(fov=60,
-        #                                                             aspect=1.0,
-        #                                                             nearVal=0.1,
-        #                                                             farVal=100.0)
-        #             (_, _, px, _, _) = self.p.getCameraImage(width=width,
-        #                                                      height=height,
-        #                                                      viewMatrix=view_matrix,
-        #                                                      projectionMatrix=proj_matrix,
-        #                                                      # renderer=p.ER_BULLET_HARDWARE_OPENGL,
-        #                                                      )
-        #             rgb_array = np.array(px, dtype=np.uint8)
-        #             rgb_array = np.reshape(rgb_array, (width, height, 4))
-
-        #             rgb_array = rgb_array[:, :, :3]
-        #             import matplotlib.pyplot as plt
-        #             plt.imshow(rgb_array)
-        #             plt.show()
-        #         if self.verbose:
-        #             print(
-        #                 "[Planner/planJointM] Warning: end configuration is in collision")
-        #         print("Check end time", time.time() - t1)
-        #         return False
-        #     print("Check end time", time.time() - t1)
-        #     if collision_fn(start_conf):
-        #         if self.verbose:
-        #             print(
-        #                 "[Planner/planJointM] Warning: initial configuration is in collision")
-        #         return False
-        #     return True
-
-        # if not check_initial_end(start_conf, end_conf, collision_fn):
-        #     return None
         t1 = time.time()
         ret = birrt(start_conf, end_conf, distance_fn,
                     sample_fn, extend_fn, collision_fn, **kwargs)
@@ -451,7 +345,6 @@ class Planner(object):
         if self.verbose > 1:
             print("\t\t\tpreparation time", preparation_time, "birrt time", birrt_time)
         return ret
-        # return plan_lazy_prm(start_conf, end_conf, sample_fn, extend_fn, collision_fn)
 
     # Four functions for plan_joint_motion
     def get_sample_fn(self, body, joints, custom_limits={}, **kwargs):
@@ -465,9 +358,7 @@ class Planner(object):
             except ImportError:
                 ghalton = None
             seed = random.randint(0, 1000)
-            # sequencer = ghalton.Halton(d)
             sequencer = ghalton.GeneralizedHalton(d, seed)
-            # sequencer.reset()
             while True:
                 [weights] = sequencer.get(1)
                 yield np.array(weights)
@@ -507,7 +398,6 @@ class Planner(object):
         def fn(q1, q2):
             diff = np.array(difference_fn(q2, q1))
             return np.sqrt(np.dot(weights, diff * diff))
-            # return np.linalg.norm(np.multiply(weights * diff), ord=norm)
 
         return fn
 
@@ -520,7 +410,6 @@ class Planner(object):
         difference_fn = get_difference_fn(self.p, body, joints)
 
         def fn(q1, q2):
-            # steps = int(np.max(np.abs(np.divide(difference_fn(q2, q1), resolutions))))
             steps = int(np.linalg.norm(
                 np.divide(difference_fn(q2, q1), resolutions), ord=norm))
             refine_fn = get_refine_fn(
@@ -529,10 +418,7 @@ class Planner(object):
 
         return fn
 
-    def get_collision_fn(self, body, joints, obstacles, attachments: list, self_collisions, disabled_collisions,
-                         custom_limits={}, **kwargs):
-        # ll, ul = get_custom_limits(self.p, body, joints, custom_limits)
-
+    def get_collision_fn(self, body, joints, obstacles, attachments: list, disabled_collisions):
         def get_check_pairs():
             '''
             self-link pairs from the robot arm, and between attachments and the arm
@@ -591,11 +477,6 @@ class Planner(object):
             # print("attachments", attachments)
             for attachment in attachments:
                 attachment.assign()
-            # parallel collision detection failed
-            # from multiprocessing import Pool
-            # with Pool(8) as pool:
-            #     collision_results = pool.map(self.pairwise_link_collision, check_collision_pairs)
-            # return np.any(collision_results)
             self.p.performCollisionDetection()
             if self.verbose > 2:
                 print("in collision fn, env time", time.time() - t1, "n attachment", len(attachments))
@@ -611,65 +492,10 @@ class Planner(object):
             is_collision = not all_contact_set.isdisjoint(check_collision_set)
             if self.verbose > 1:
                 if is_collision:
-                    # img = get_image(self.p, 500, 500)
-                    # plt.imshow(img)
-                    # plt.show()
                     print(all_contact_set.intersection(check_collision_set))
-            #     print("in collision_fn, until end", time.time() - start_time)  # 5e-4
             return is_collision
 
         return collision_fn
-
-    # Functions for collision detection
-    def get_closest_points(self, body1, body2, link1=None, link2=None, max_distance=MAX_DISTANCE):
-        if (link1 is None) and (link2 is None):
-            results = self.p.getClosestPoints(
-                bodyA=body1, bodyB=body2, distance=max_distance)
-        elif link2 is None:
-            results = self.p.getClosestPoints(bodyA=body1, bodyB=body2, linkIndexA=link1, distance=max_distance)
-        elif link1 is None:
-            results = self.p.getClosestPoints(bodyA=body1, bodyB=body2, linkIndexB=link2, distance=max_distance)
-        else:
-            results = self.p.getClosestPoints(bodyA=body1, bodyB=body2, linkIndexA=link1, linkIndexB=link2,
-                                              distance=max_distance)
-        return [CollisionInfo(*info) for info in results] if results is not None else []
-
-    def pairwise_link_collision(self, body1, link1, body2, link2=BASE_LINK, **kwargs):
-        return len(self.get_closest_points(body1, body2, link1=link1, link2=link2, **kwargs)) != 0
-
-    def expand_links(self, body):
-        body, links = body if isinstance(body, tuple) else (body, None)
-        if links is None:
-            links = get_links(self.p, body)
-        return body, links
-
-    def any_link_pair_collision(self, body1, links1, body2, links2=None, **kwargs):
-        # TODO: this likely isn't needed anymore
-        if links1 is None:
-            links1 = get_links(self.p, body1)
-        if links2 is None:
-            links2 = get_links(self.p, body2)
-        for link1, link2 in product(links1, links2):
-            if (body1 == body2) and (link1 == link2):
-                continue
-            if self.pairwise_link_collision(body1, link1, body2, link2, **kwargs):
-                return True
-        return False
-
-    def body_collision(self, body1, body2, **kwargs):
-        return len(self.get_closest_points(body1, body2, **kwargs)) != 0
-
-    def pairwise_collision(self, body1, body2, **kwargs):
-        if isinstance(body1, tuple) or isinstance(body2, tuple):
-            body1, links1 = self.expand_links(body1)
-            body2, links2 = self.expand_links(body2)
-            if not links1:
-                links1 = [-1]
-            if not links2:
-                links2 = [-1]
-            # print("perform any_link_pair_collision", body1, links1, body2, links2)
-            return self.any_link_pair_collision(body1, links1, body2, links2, **kwargs)
-        return self.body_collision(body1, body2, **kwargs)
 
 
 class Executor(object):
@@ -683,14 +509,9 @@ class Executor(object):
             if os.path.exists("video_tmp"):
                 shutil.rmtree("video_tmp")
             os.makedirs("video_tmp", exist_ok=True)
-            # self.logging_id = self.p.startStateLogging(self.p.STATE_LOGGING_VIDEO_MP4, "video_logging.mp4")
         self.img_idx = 0
         self.verbose = verbose
         self.movable_joints = self.robot.motorIndices
-
-    # def __del__(self):
-    #     if self.record:
-    #         self.p.stopStateLogging(self.logging_id)
 
     def set_ctrl_mode(self, mode):
         assert mode in ["teleport", "position"]
@@ -1042,10 +863,9 @@ class Primitive(object):
     def _change_pose(self, tgt_block, tgt_pos, tgt_orn, abstract_grasp=True):
         start_time = time.time()
         tgt_pos[2] = np.maximum(tgt_pos[2], 0.045)
-        # TODO: only during deployment
-        # HACK: for vertical blocks, force gripper height
-        if abs(np.dot(quat_rot_vec(tgt_orn, np.array([0., 1., 0.])), np.array([0., 0., 1.]))) > 0.9:
-            tgt_pos[2] = 0.105
+        # for vertical blocks, force gripper height
+        # if abs(np.dot(quat_rot_vec(tgt_orn, np.array([0., 1., 0.])), np.array([0., 0., 1.]))) > 0.9:
+        #     tgt_pos[2] = 0.105
         if self.verbose > 0:
             print("###########")
             print("Start change pos")
@@ -1054,13 +874,6 @@ class Primitive(object):
         plan_state_id = self.plan_p.saveState()
         sync_env_time = time.time() - t1
         t1 = time.time()
-        # assert np.linalg.norm(get_body_pos_and_orn(self.plan_body_blocks[tgt_block], self.plan_p)[0] -
-        #                       get_body_pos_and_orn(self.exec_body_blocks[tgt_block], self.exec_p)[0]) < 1e-3
-        # assert np.linalg.norm(np.array(self.plan_p.getCollisionShapeData(self.plan_body_blocks[tgt_block], -1)[0][3]) -
-        #                       np.array(self.exec_p.getCollisionShapeData(self.exec_body_blocks[tgt_block], -1)[0][3])) < 1e-3
-        # assert np.linalg.norm(get_body_pos_and_orn(self.body_cliff0, self.plan_p)[0] - get_body_pos_and_orn(self.body_cliff0, self.exec_p)[0]) < 1e-3
-        cur_q = get_joint_positions(self.plan_p, self.plan_robot._robot,
-                                    self.plan_robot.motorIndices[:self.plan_robot.ndof])
         gripper_quats = get_eef_orn(tgt_orn, self.topdown_euler, self.init_gripper_axis, self.init_gripper_quat)
         get_eef_orn_time = time.time() - t1
         # print("in change pos, gripper quats", gripper_quats)
@@ -1086,16 +899,6 @@ class Primitive(object):
         # TODO: compute rel_quat
         rel_quat = quat_diff(np.array([0., 0., 0., 1.]), euler2quat(self.topdown_euler))
         rel_xyz = [0., 0., self.grasp_offset + 0.003]
-        # if isinstance(self.plan_robot, Kinova2f85Robot):
-        #     rel_quat = [0., 0., 0.707, 0.707]
-        #     rel_xyz = [0., 0., 0.01]
-        # elif isinstance(self.plan_robot, UR2f85Robot):
-        #     rel_quat = quat_diff(np.array([0., 0., 0., 1.]), euler2quat(self.topdown_euler))
-        #     rel_xyz = [0., 0., self.grasp_offset]
-        # else:
-        #     rel_quat = [0., 0., 0., 1.]
-        #     rel_xyz = [0., 0., 0.01]
-        # TODO: camera and rope
         grasp.set_attach(self.plan_body_blocks[tgt_block], rel_quat=rel_quat,
                          topdown_quat=euler2quat(self.topdown_euler), rel_xyz=rel_xyz)
         grasp_time = time.time() - t1
@@ -1125,15 +928,9 @@ class Primitive(object):
         if self.verbose > 1:
             print("change pose, get contact body", time.time() - t1)
         t1 = time.time()
-        # disabled_inter_pairs = set(product([(self.plan_robot._robot, link)
-        #                                     for link in range(self.plan_robot.end_effector_index + 1,
-        #                                                       self.plan_robot.num_joints)] + [
-        #                                        (self.plan_body_blocks[tgt_block], -1)],
-        #                                    [(contact, -1) for contact in contact_bodies]))
         disabled_inter_pairs = set()
         disabled_pairs_time += time.time() - t1
         valid_paths = []
-        # approach_q = sorted(approach_q, key=lambda x: np.linalg.norm(x - cur_q))
 
         t1 = time.time()
         is_collision = self.planner.check_qpos_collision(approach_q, q_finger, grasp,
@@ -1150,10 +947,6 @@ class Primitive(object):
 
         t1 = time.time()
         approach_q = (np.array(approach_q)[~is_collision]).tolist()
-        # final_q = (np.array(final_q)[~is_collision]).tolist()
-        # approach_and_final_q = zip(approach_q, final_q)
-        # approach_and_final_q = sorted(approach_and_final_q, key=lambda x: np.linalg.norm(np.array(x[0]) - cur_q))
-        # approach_q, final_q = zip(*approach_and_final_q)
 
         for q_idx, q in enumerate(approach_q):
             res = self.planner.do_plan_motion(q, q_finger, grasp, set.union(disabled_intra_pairs, disabled_inter_pairs),
@@ -1175,8 +968,6 @@ class Primitive(object):
         if not valid_paths:
             return False, PATH_IN_COLLISION, None
         assert len(valid_paths) == 1
-        # valid_paths = sorted(valid_paths, key=lambda x: len(x.path))
-        # old_state = self.exec_p.saveState()
         t1 = time.time()
         if abstract_grasp:
             exec_attachments = [
@@ -1189,7 +980,6 @@ class Primitive(object):
             res = self.executor.run(armpath, attachments=exec_attachments)
             if res:
                 execution_time = time.time() - t1
-                # self.exec_p.removeState(old_state)
                 if self.verbose > 1:
                     print("sync_env_time", sync_env_time)
                     print("get_eef_orn_time", get_eef_orn_time)
@@ -1201,9 +991,6 @@ class Primitive(object):
                     print("execution_time", execution_time)
                     print("Summary: change pose time", time.time() - start_time)
                 return True, SUCCESS, armpath.path
-            # else:
-            #     self.exec_p.restoreState(stateId=old_state)
-        # self.exec_p.removeState(old_state)
         return False, EXECUTION_FAIL, None
 
     def _release_finger(self, tgt_block):
@@ -1279,7 +1066,6 @@ class Primitive(object):
             tgt_poses.append(tgt_pos + np.array([-0.05, 0., 0.]))
             tgt_poses.append(tgt_pos + np.array([0., 0., 0.2]))
             tgt_quat = self.plan_robot.get_end_effector_orn(as_type="quat")
-            # tgt_quat = euler2quat(self.plan_robot.topdown_euler)
         else:
             self.plan_p.removeState(plan_state_id)
             return True, SUCCESS, None
@@ -1403,10 +1189,6 @@ class Primitive(object):
                                              {((self.plan_robot._robot, 0), (table_id, -1)) for table_id in
                                               self.body_tables})
         disabled_pairs_time = time.time() - t1
-        # Assume end configuration has already been checked
-        # is_collision = self.planner.check_qpos_collision([q], q_finger, disabled_collisions=disabled_collision_pairs)
-        # if np.all(is_collision):
-        #     return False, END_IN_COLLISION
         t1 = time.time()
         res = self.planner.do_plan_motion(q, q_finger, disabled_collisions=disabled_collision_pairs,
                                           plan_state_id=plan_state_id)
@@ -1454,10 +1236,6 @@ class Primitive(object):
             return 10 * PHASE_CLOSE + res[1], None
         else:
             path["close_finger"] = res[2]
-        # res = self._lift_up(tgt_block)
-        # if not res[0]:
-        #     print("lift up fail", res[1])
-        #     return False
         t1 = time.time()
         res = self._change_pose(tgt_block, tgt_pos, tgt_orn, abstract_grasp=True)
         change_pose_time = time.time() - t1
@@ -1494,25 +1272,16 @@ class Primitive(object):
             return 10 * PHASE_BACK + res[1], None
         else:
             path["move_back"] = res[2]
-        # t1 = time.time()
-        # res = self._reset_pose()
-        # reset_pose_time = time.time() - t1
-        # if not res[0]:
-        #     if self.verbose > 0:
-        #         print("reset pose fail", res[1])
-        #     return 10 * PHASE_RESET + res[1]
-        # self._sim_until_stable()
         if self.verbose > 0:
             print("primitive success")
         if self.verbose > 1:
-            print("move object time", time.time() - move_object_start)  # 1.209
-            print("\tfetch object time", fetch_object_time)  # 0.402
+            print("move object time", time.time() - move_object_start)
+            print("\tfetch object time", fetch_object_time)
             print("\tclose finger time", close_finger_time)
-            print("\tchange pose time", change_pose_time)  # 0.486
+            print("\tchange pose time", change_pose_time)
             print("\trelease finger time", release_finger_time)
             print("\tlift up time", lift_up_time)
             print("\tmove back time", move_back_time)
-            # print("\treset pose time", reset_pose_time)  # 0.207
         return SUCCESS, path
 
 
@@ -1525,43 +1294,24 @@ def sync_plan_with_exec(plan_p, exec_p):
     # print("save file", time.time() - t1)
     t1 = time.time()
     plan_p.restoreState(fileName=state_file)
-    # print("load file", time.time() - t1) # Takes most of the time
-    # plan_p.stepSimulation()
     os.remove(state_file)
-
-
-'''
-# Cannot use state id
-def sync_plan_with_exec(plan_p, exec_p):
-    state_id = exec_p.saveState()
-    plan_p.restoreState(stateId=state_id)
-    return state_id
-'''
 
 
 def main():
     robot = "xarm"
-    friction_range = (0.25, 0.5)
-    env = BulletBridgeConstructionHigh(7, min_num_blocks=7, stable_reward_coef=0., rotation_penalty_coef=0.,
-                                       height_coef=0., rotation_range=(-0.5 * np.pi, 0.5 * np.pi),
-                                       adaptive_number=False, random_size=True, include_time=False, discrete=False,
-                                       random_mode="long", action_scale=0.6, center_y=False, block_thickness=0.025,
-                                       cliff_thickness=0.1, cliff_height=0.1, noop=True, render=True, need_visual=True,
-                                       robot=robot, friction_range=friction_range)
+    env = BulletBridgeConstructionHigh(7, random_size=True, min_num_blocks=7, discrete=False, random_mode="long",
+                                       action_scale=0.6, block_thickness=0.025, cliff_thickness=0.1, cliff_height=0.1,
+                                       noop=True, render=True, need_visual=True, robot=robot)
     env.set_hard_ratio(1.0, 7)
     inner_env = BulletBridgeConstructionLow(7, random_size=True, discrete=False, mode="long", block_thickness=0.025,
-                                            cliff_thickness=0.1, cliff_height=0.1, rel_obs=False, render=False,
-                                            need_visual=False, robot=robot, friction_range=friction_range)
+                                            cliff_thickness=0.1, cliff_height=0.1, render=False, need_visual=False,
+                                            robot=robot)
     planning_p = inner_env.p
     planning_robot = inner_env.robot
     exec_p = env.env.p
     exec_robot = env.env.robot
 
     env.reset()
-    # env.env.p.resetBasePositionAndOrientation(env.env.body_blocks[0], np.array([1.3, env.get_cliff_pos(1)[1] - 0.22, 0.025]),
-    #                                           np.array([0., 0., 0., 1.]))
-    # env.env.p.resetBasePositionAndOrientation(env.env.body_blocks[0], np.array(exec_robot.base_pos) + np.array([0., 0., 0.03]), np.array([0., 0., 0., 1.]))
-    # env.env.p.stepSimulation()
 
     planner = Planner(planning_robot, planning_p, verbose=1, smooth_path=True)
     obstacles = [inner_env.body_cliff0, inner_env.body_cliff1] + inner_env.body_blocks

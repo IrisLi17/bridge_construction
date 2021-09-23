@@ -2,7 +2,7 @@ import gym
 from gym.utils import seeding
 from gym import spaces
 
-from env.bullet_rotations import quat_rot_vec, quat2euler, quat_mul, gen_noisy_q, quat_diff
+from env.bullet_rotations import quat_rot_vec, quat_mul, quat_diff
 import numpy as np
 import pybullet as p
 import pybullet_data
@@ -26,10 +26,6 @@ def _out_of_reach(object_pos, cliff0_center, cliff1_center, object_size, cliff_s
     if object_pos[0] < cliff0_center[0] - cliff_size[0] or object_pos[0] > cliff0_center[0] + cliff_size[0]:
         return True
     return False
-    # return object_pos[1] + object_size[1] * np.cos(cos_theta) < cliff0_center + cliff_size[2] or \
-    #        object_pos[1] - object_size[1] * np.cos(cos_theta) > cliff1_center - cliff_size[2]
-    # return object_pos[1] + object_size[1] < cliff0_center + cliff_size[1] or \
-    #        object_pos[1] - object_size[1] > cliff1_center - cliff_size[1]
 
 
 def _is_feasible(n_std, n_paired, cliff_distance, rand_size: List, half_height=0.1):
@@ -136,36 +132,15 @@ class RobotGymBaseEnv(gym.Env):
         self.init_end_effector_orn = init_end_effector_orn
         self.useNullSpace = useNullSpace
         self.robot_name = robot
-        # self.reward_type = reward_type
-        # self.use_orn = use_orn
-        # self.use_roll = use_roll
-        # self.include_v = include_v
         self._render = render
 
         self._setup_env()
 
-        # obs = self.reset()
-        # # observation_space, action_space
-        # self.observation_space = spaces.Dict(dict(
-        #     observation=spaces.Box(-np.inf, np.inf, shape=obs['observation'].shape, dtype=np.float32),
-        #     achieved_goal=spaces.Box(-np.inf, np.inf, shape=obs['achieved_goal'].shape, dtype=np.float32),
-        #     desired_goal=spaces.Box(-np.inf, np.inf, shape=obs['desired_goal'].shape, dtype=np.float32)
-        # ))
-        # if self.use_orn:
-        #     self.action_space = spaces.Box(-1., 1., shape=(7,), dtype=np.float32)
-        # elif self.use_roll:
-        #     self.action_space = spaces.Box(-1., 1., shape=(5,), dtype=np.float32)
-        # else:
-        #     self.action_space = spaces.Box(-1., 1., shape=(4,), dtype=np.float32)
-
     def _setup_env(self):
         if self._render:
-            # physics_client = p.connect(p.GUI)
             physics_client = bc.BulletClient(connection_mode=p.GUI)
         else:
-            # physics_client = p.connect(p.DIRECT)
             physics_client = bc.BulletClient(connection_mode=p.DIRECT)
-        # self.p = PhysClientWrapper(p, physics_client)
         self.p = physics_client
         self._bullet_dataRoot = pybullet_data.getDataPath()
 
@@ -226,7 +201,6 @@ class RobotGymBaseEnv(gym.Env):
                                                      height=height,
                                                      viewMatrix=view_matrix,
                                                      projectionMatrix=proj_matrix,
-                                                     # renderer=p.ER_BULLET_HARDWARE_OPENGL,
                                                      )
             rgb_array = np.array(px, dtype=np.uint8)
             rgb_array = np.reshape(rgb_array, (height, width, 4))
@@ -239,9 +213,8 @@ class RobotGymBaseEnv(gym.Env):
 
 
 class BulletBridgeConstructionLow(RobotGymBaseEnv):
-    def __init__(self, num_blocks, random_size, discrete=False, mode="split", block_thickness=0.025, cliff_thickness=0.1,
-                 cliff_height=0.05, render=False, need_visual=False, robot="ur",
-                 friction_range=(0.25, 0.5)):
+    def __init__(self, num_blocks, random_size, discrete=False, mode="split", block_thickness=0.025,
+                 cliff_thickness=0.1, cliff_height=0.05, render=False, need_visual=False, robot="ur"):
         self.num_blocks = num_blocks
         self.cur_num_blocks = num_blocks
         self.random_size = random_size
@@ -263,7 +236,7 @@ class BulletBridgeConstructionLow(RobotGymBaseEnv):
         self.all_collision_shapes = None
         self.all_visual_shapes = None
         self.restitution_range = (0.35, 0.65)
-        self.friction_range = friction_range
+        self.friction_range = (0.5, 0.5)
         super(BulletBridgeConstructionLow, self).__init__(render=render, robot=robot)
 
     def _create_block(self, halfExtents, pos, orn, mass=0.2, rgba=None, vel=None, vela=None):
@@ -284,8 +257,6 @@ class BulletBridgeConstructionLow(RobotGymBaseEnv):
         return body_id
 
     def _update_block(self, body_id, halfExtents, pos, orn, vel=None, vela=None):
-        # TODO: buggy
-        # t1 = time.time()
         # The scale in creation time
         old_halfextents = np.array([self._block_thickness, self._cliff_height, self._block_thickness])
         scaling = np.array(halfExtents) / old_halfextents
@@ -299,7 +270,6 @@ class BulletBridgeConstructionLow(RobotGymBaseEnv):
         if vela is None:
             vela = [0., 0., 0.]
         self.p.resetBaseVelocity(body_id, vel, vela)
-        # print("update block time", time.time() - t1)
         restitution = np.random.uniform(*self.restitution_range)
         friction = np.random.uniform(*self.friction_range)
         self.p.changeDynamics(body_id, -1, mass=1, restitution=restitution, lateralFriction=friction,
@@ -312,8 +282,6 @@ class BulletBridgeConstructionLow(RobotGymBaseEnv):
         tableid = self.p.loadURDF(os.path.join(self._bullet_dataRoot, "table/table.urdf"),
                                   [1.200000, 0.60000, -.625000],
                                   [0.000000, 0.000000, 0.707, 0.707])
-        # table2id = self.p.loadURDF(os.path.join(self._bullet_dataRoot, "table/table.urdf"),
-        #                            [0.05, -0.10, -0.625], [0., 0., 0., 1.])
         self.body_tables = [tableid]
 
         # Cliffs
@@ -323,7 +291,6 @@ class BulletBridgeConstructionLow(RobotGymBaseEnv):
         self.body_cliff0 = self.p.createMultiBody(cliff_mass, col_id, vis_id, [1.3, 0.3, self._cliff_height], [0.707, 0., 0., 0.707])
         self.body_cliff1 = self.p.createMultiBody(cliff_mass, col_id, vis_id, [1.3, 0.9, self._cliff_height], [0.707, 0., 0., 0.707])
         # Blocks
-        # TODO: create separate collision shape and visual shape for each object
         self.all_collision_shapes = []
         self.all_visual_shapes = []
         for i in range(self.num_blocks):
@@ -335,14 +302,8 @@ class BulletBridgeConstructionLow(RobotGymBaseEnv):
                     self._block_thickness, self._cliff_height, self._block_thickness
                 ])
             )
-        # col_id = self.p.createCollisionShape(self.p.GEOM_BOX, halfExtents=[self._block_thickness, self._cliff_height, self._block_thickness])
-        # vis_id = self.p.createVisualShape(self.p.GEOM_BOX, halfExtents=[self._block_thickness, self._cliff_height, self._block_thickness])
         block_mass = 0.05
         self.body_blocks = []
-        # self.block_reset_pos = [np.array([0.95, 0.15 + i * 0.15, self._block_thickness])
-        #                         for i in range(self.num_blocks)]
-        # self.block_reset_orn = [np.array([0., 0., 0.707, 0.707])] * self.num_blocks
-        # if isinstance(self.robot, UR2f85Robot):
         self.block_reset_pos = [np.array([0.9 + 0.15 * i, 0.0, self._block_thickness]) for i in range(2)] + \
                                [np.array([0.9 + 0.15 * (i - 2), 0.26, self._block_thickness]) for i in range(2, 4)] + \
                                [np.array([0.9 + 0.15 * (i - 4), 0.94, self._block_thickness]) for i in range(4 ,6)] + \
@@ -355,9 +316,6 @@ class BulletBridgeConstructionLow(RobotGymBaseEnv):
             self.p.changeVisualShape(self.body_blocks[-1], -1, rgbaColor=BASIC_COLORS[i] + [1.])
         for _ in range(100):
             self.p.stepSimulation()
-        # for i in range(self.num_blocks):
-        #     pos, orn = self.p.getBasePositionAndOrientation(self.body_blocks[i])
-        #     print(pos)
 
     def set_cur_num_blocks(self, cur_num_blocks):
         self.cur_num_blocks = cur_num_blocks
@@ -379,16 +337,7 @@ class BulletBridgeConstructionLow(RobotGymBaseEnv):
         self.cliff1_boundary = self.cliff1_center - self._cliff_thickness
         # print(self.p.getVisualShapeData(self.body_cliff0, -1)[0])
         self.cliff_size = np.array(self.p.getCollisionShapeData(self.body_cliff0, -1)[0][3]) / 2
-        # Some leakage above, not severe
 
-        # initial_pos = [np.array([1.3, self.cliff0_center,
-        #                          2 * self.cliff_size[1] + self._block_thickness + 2 * self._block_thickness * i]) for i
-        #                in
-        #                range(self.cur_num_blocks)]
-        # initial_orn = [np.array([0., 0., 0., 1.])] * self.cur_num_blocks
-        # initial_pos = [np.array([1.1, self.cliff0_center + self._cliff_thickness - i * 8 * self._block_thickness,
-        #                          self._block_thickness]) for i in range(self.cur_num_blocks)]
-        # initial_orn = [np.array([0., 0., 0.707, 0.707])] * self.cur_num_blocks
         if self.random_size:
             block_lengths, _info = generate_block_length(self.cur_num_blocks, self.cliff1_boundary - self.cliff0_boundary,
                                                          half_height=self.cliff_size[1], discrete=self.discrete,
@@ -397,7 +346,6 @@ class BulletBridgeConstructionLow(RobotGymBaseEnv):
         else:
             assert abs(self.cliff_size[1] - self._cliff_height) < 1e-5
             block_lengths = [self.cliff_size[1]] * self.cur_num_blocks
-        # Some leakage, not severe
         if len(self.body_blocks) and (not self.need_visual):
             assert len(self.body_blocks) == self.num_blocks
             for i in range(self.cur_num_blocks):
@@ -427,8 +375,6 @@ class BulletBridgeConstructionLow(RobotGymBaseEnv):
                     initial_pos, initial_orn)
         for _ in range(10):
             self.p.stepSimulation()
-        # No leakage
-        # print(self.body_blocks)
         return True
 
     def sync_attr(self):
@@ -444,13 +390,9 @@ class BulletBridgeConstructionLow(RobotGymBaseEnv):
             self.block_size[i] = np.array(self.p.getCollisionShapeData(self.body_blocks[i], -1)[0][3]) / 2
 
     def _get_obs(self):
-        # grip_pos, grip_orn, grip_velp, (finger1_pos, finger2_pos), (tip1_pos, tip2_pos), \
-        # (finger1_vel, finger2_vel), (tip1_vel, tip2_vel) = self.robot.get_observation()
         grip_pos, grip_orn, grip_velp, gripper_state, gripper_vel = self.robot.get_observation()
         dt = self.timestep * self.actionRepeat
         grip_velp = np.array(grip_velp) * dt
-        # gripper_state = np.array([finger1_pos, finger2_pos])
-        # gripper_vel = np.array([finger1_vel, finger2_vel])
         gripper_vel = gripper_vel * dt  # change to a scalar if the gripper is made symmetric
 
         obs = np.concatenate([
@@ -467,13 +409,10 @@ class BulletBridgeConstructionLow(RobotGymBaseEnv):
         cliff1_center, _ = self.p.getBasePositionAndOrientation(self.body_cliff1)
         cliff_size = np.array(self.p.getCollisionShapeData(self.body_cliff0, -1)[0][3]) / 2
         # objects
-        # for i in range(self.num_blocks):
         for i in range(self.cur_num_blocks):
             object_i_pos, object_i_quat = self.p.getBasePositionAndOrientation(self.body_blocks[i])
             object_i_pos = np.array(object_i_pos)
             # rotations
-            # object_i_rot = self.p.getEulerFromQuaternion(object_i_quat)
-            # TODO: convert symmetries to one representation
             object_i_rot = self.p.getEulerFromQuaternion(convert_symmetric_quat(object_i_quat))
             object_i_rot = np.array(object_i_rot)
             # velocities
@@ -482,8 +421,6 @@ class BulletBridgeConstructionLow(RobotGymBaseEnv):
             object_i_velr = np.array(object_i_velr)
             object_i_velp *= dt
             object_i_velr *= dt
-            # gripper state
-            object_i_rel_pos = object_i_pos - grip_pos
             object_i_velp -= grip_velp
             object_i_size = np.array(self.p.getCollisionShapeData(self.body_blocks[i], -1)[0][3]) / 2
             cliff_height = np.array([cliff_size[1]])
@@ -491,14 +428,14 @@ class BulletBridgeConstructionLow(RobotGymBaseEnv):
             if _out_of_reach(object_i_pos, cliff0_center, cliff1_center, object_i_size, cliff_size,
                              cos_theta=abs(quat_rot_vec(np.array(object_i_quat), np.array([0., 1., 0.]))[1])):
                 object_i_pos = -np.ones(3)
-                object_i_rel_pos = object_i_rot = object_i_velp = object_i_velr = np.zeros(3)
+                object_i_rot = object_i_velp = object_i_velr = np.zeros(3)
             obs = np.concatenate([obs, object_i_pos, object_i_rot, object_i_velp, object_i_velr, object_i_size,
                                   cliff_height - object_i_size[1], object_i_type]) \
                 if self.random_size else np.concatenate([obs, object_i_pos, object_i_rot, object_i_velp, object_i_velr, object_i_type])
             if self.object_dim is None:
                 self.object_dim = len(obs) - self.robot_dim
         for i in range(self.cur_num_blocks, self.num_blocks):
-            object_i_pos = object_i_rel_pos = object_i_rot = object_i_velp = object_i_velr = np.zeros(3)
+            object_i_pos = object_i_rot = object_i_velp = object_i_velr = np.zeros(3)
             object_i_size = np.zeros(3)
             cliff_height = np.array([0])
             object_i_type = np.array([0])
@@ -527,44 +464,25 @@ class BulletBridgeConstructionLow(RobotGymBaseEnv):
 
 
 class BulletBridgeConstructionHigh(gym.Env):
-    def __init__(self, num_blocks, stable_reward_coef=1.0, rotation_penalty_coef=0.1, height_coef=1.0, smooth_coef=0.0,
-                 cost_coef=0.0, reward_type="onestep", hard_ratio=0.0, action_2d=True,
-                 adaptive_number=True,
-                 random_size=False, include_time=True, min_num_blocks=3, smooth_max=0.2, cl_type="adapt_hard",
-                 discrete=False, observe_skyline=False, skyline_dim=20, random_mode="split", action_scale=0.4,
-                 block_thickness=0.025, center_y=True, narrow_z=True, cons_coef=1.0, rotation_range=(-np.pi, np.pi),
-                 restart_rate=0., cliff_thickness=0.5, cliff_height=0.05, noop=False, render=False,
-                 need_visual=False, primitive=False, compute_path=False, robot="ur",
-                 friction_range=None, force_scale=0, adaptive_primitive=False):
+    def __init__(self, num_blocks, hard_ratio=0.0, action_2d=True, random_size=False, min_num_blocks=3, discrete=False,
+                 random_mode="split", action_scale=0.4, block_thickness=0.025, narrow_z=True, restart_rate=0.,
+                 cliff_thickness=0.5, cliff_height=0.05, noop=False, render=False, need_visual=False, primitive=False,
+                 compute_path=False, robot="ur", force_scale=0, adaptive_primitive=False):
         self.num_blocks = num_blocks  # This is the max number of objects throughout training.
-        self.cur_max_blocks = min_num_blocks if adaptive_number else num_blocks  # This is the adaptive current max number of objects
+        self.cur_max_blocks = num_blocks  # This is the adaptive current max number of objects
         self.min_num_blocks = min_num_blocks
-        self.adaptive_number = adaptive_number
-        self.stable_reward_coef = stable_reward_coef
-        self.cur_stable_reward_coef = 0
-        self.rotation_penalty_coef = rotation_penalty_coef
-        self.cons_coef = cons_coef
-        self.height_coef = height_coef
-        self.smooth_coef = smooth_coef
-        self.smooth_max = smooth_max
-        self.cost_coef = cost_coef  # Material cost
-        self.reward_type = reward_type  # Available reward_types are ['onestep', 'incremental']
         self.hard_ratio = [hard_ratio] * self.num_blocks
         self.action_2d = action_2d
-        self.include_time = include_time
-        self.cl_type = cl_type
         self.has_cliff = True
-        self.observe_skyline = observe_skyline
-        self.skyline_dim = skyline_dim
-        self.center_y = center_y
+        self.skyline_dim = 38
         self.narrow_z = narrow_z
-        self.rotation_range = np.asarray(rotation_range)
+        self.rotation_range = np.array([-0.5 * np.pi, 0.5 * np.pi])
         self.restart_rate = restart_rate
         self.noop = noop
         self.force_scale = force_scale
         self.cur_force_scale = 0
         self.env = self._set_env_low(random_size, discrete, random_mode, block_thickness, cliff_thickness, cliff_height,
-                                     render, need_visual, robot, friction_range)
+                                     render, need_visual, robot)
         self.env.reset()
         self.step_counter = 0
         self.object_dim = None  # will be set in _get_obs() call
@@ -578,33 +496,26 @@ class BulletBridgeConstructionHigh(gym.Env):
         self.action_scale = action_scale
         obs_shape = self._get_obs().shape
         self.observation_space = spaces.Box(-np.inf, np.inf, shape=(obs_shape[0],), dtype='float32')
-        self.previous_reward = 0.
         self.test_threshold = 0.25  # Manually set it according to the height of standard block, will be overwritten
-        # self.num_test_cubes = self.env.num_test_cubes
-        # self.cliff_max_distance = 0.3
-        # self.cliff_min_distance = 0.1
         self.state_replay_buffer = deque(maxlen=10000)
         self.compute_path = compute_path
         self.primitive = None
         if primitive:
-            self._set_primitive(force_scale, robot, friction_range)
+            self._set_primitive(force_scale, robot)
         self.adaptive_primitive = adaptive_primitive
         self.detailed_sr = [0.0] * self.num_blocks
 
-    def _set_env_low(self, random_size, discrete, random_mode, block_thickness, cliff_thickness, cliff_height,
-                     render, need_visual, robot, friction_range):
+    def _set_env_low(self, random_size, discrete, random_mode, block_thickness, cliff_thickness, cliff_height, render,
+                     need_visual, robot):
         return BulletBridgeConstructionLow(self.num_blocks, random_size, discrete, random_mode, block_thickness,
-                                           cliff_thickness, cliff_height, render, need_visual, robot,
-                                           friction_range)
+                                           cliff_thickness, cliff_height, render, need_visual, robot)
 
-    def _set_primitive(self, force_scale, robot, friction_range):
+    def _set_primitive(self, force_scale, robot):
         # Create low level env for planning
         self.plan_low = BulletBridgeConstructionLow(self.num_blocks, self.env.random_size, self.env.discrete,
                                                     self.env.mode, self.env._block_thickness, self.env._cliff_thickness,
-                                                    self.env._cliff_height, False, False, robot,
-                                                    friction_range)
+                                                    self.env._cliff_height, False, False, robot)
         from env.mp_interface_bullet import Planner, Executor, Primitive
-        # TODO: visualization
         planner = Planner(self.plan_low.robot, self.plan_low.p, smooth_path=self.compute_path)
         executor = Executor(self.env.robot, self.env.p, ctrl_mode="teleport", record=False)
         self.primitive = Primitive(planner, executor, self.env.body_blocks, self.env.body_cliff0, self.env.body_cliff1,
@@ -612,35 +523,18 @@ class BulletBridgeConstructionHigh(gym.Env):
                                    teleport_arm=not self.compute_path, force_scale=force_scale)
 
     def reset(self):
-        # TODO: with some probability, restart from a replay buffer.
-        #  Need to set both mjstate (only qpos and qvel can be recovered), geoms, bodies and other attributes.
+        # with some probability, restart from a replay buffer.
         if len(self.state_replay_buffer) and self.env.np_random.rand() < self.restart_rate:
             self.restart_from_buffer = True
             state_dict = self.state_replay_buffer.popleft()
-            # state_dict = self.state_replay_buffer[self.env.np_random.randint(0, len(self.state_replay_buffer))]
             self.set_state(state_dict)
         else:
             self.restart_from_buffer = False
-            # cur_num_blocks = np.random.randint(3, self.cur_max_blocks + 1)
-            if self.adaptive_number:
-                if self.env.random_size and self.env.mode == "long":
-                    prob = [1] if self.cur_max_blocks == self.min_num_blocks else \
-                        [(1 - 0.6) / ((self.cur_max_blocks - self.min_num_blocks) / 2)] * ((self.cur_max_blocks - self.min_num_blocks) // 2) + [0.6]
-                    cur_num_blocks = np.random.choice(list(filter(lambda v: v % 2 == 1, np.arange(self.min_num_blocks, self.cur_max_blocks + 1))), p=prob)
-                else:
-                    prob = [1] if self.cur_max_blocks == self.min_num_blocks else \
-                        [(1 - 0.6) / (self.cur_max_blocks - self.min_num_blocks)] * (self.cur_max_blocks - self.min_num_blocks) + [0.6]
-                    cur_num_blocks = np.random.choice(np.arange(self.min_num_blocks, self.cur_max_blocks + 1), p=prob)
+            if self.env.random_size and self.env.mode == "long":
+                cur_num_blocks = np.random.choice(list(filter(lambda v: v % 2 == 1, np.arange(self.min_num_blocks, self.cur_max_blocks + 1))))
             else:
-                if self.env.random_size and self.env.mode == "long":
-                    cur_num_blocks = np.random.choice(list(filter(lambda v: v % 2 == 1, np.arange(self.min_num_blocks, self.cur_max_blocks + 1))))
-                else:
-                    cur_num_blocks = np.random.choice(np.arange(self.min_num_blocks, self.cur_max_blocks + 1))
+                cur_num_blocks = np.random.choice(np.arange(self.min_num_blocks, self.cur_max_blocks + 1))
             self.env.set_cur_num_blocks(cur_num_blocks)
-            # # distance range is always from [0.1, 0.1 * current number of blocks]
-            # cliff_max_distance = 0.1 * cur_num_blocks
-            # cliff_min_distance = np.maximum(0.1 * (cur_num_blocks - 2), 0.1)
-            # TODO: for random size, do we need to shorten the distance?
             if self.env.random_size:
                 if self.env.mode == "split":
                     if cur_num_blocks % 2 == 0:
@@ -655,84 +549,34 @@ class BulletBridgeConstructionHigh(gym.Env):
                     cliff_max_distance = self.env.cliff_size[1] * (cur_num_blocks + 0.5)
                     if cur_num_blocks == 5:
                         cliff_max_distance += 0.5 * self.env.cliff_size[1]
-                    # if cur_num_blocks % 2 == 0:
-                    #     cliff_max_distance = 0.1 * cur_num_blocks
-                    # else:
-                    #     cliff_max_distance = 0.1 * cur_num_blocks + 0.05
                     cliff_min_distance = self.env.cliff_size[1] + 0.05
             else:
                 if cur_num_blocks % 2 == 0:
                     cliff_max_distance = self.env.cliff_size[1] * (cur_num_blocks - 0.5)
                     cliff_min_distance = self.env.cliff_size[1]
-                    # cliff_min_distance = np.maximum(0.1 * (cur_num_blocks - 2) - 0.05, 0.1)
                 else:
                     cliff_max_distance = self.env.cliff_size[1] * cur_num_blocks
                     cliff_min_distance = self.env.cliff_size[1]
-                    # cliff_min_distance = np.maximum(0.1 * (cur_num_blocks - 2), 0.1)
-            # # TODO: change to gaussian?
-            # if self.adaptive_number and cur_num_blocks < self.cur_max_blocks:
-            #     # For previous solved number, we sample the most difficult case
-            #     mean_distance = cliff_max_distance
-            # else:
-            #     # If adaptive_number, For current learning number, we sample cliff distance w.r.t. hard ratio
-            #     # When number of objects is uniformly sampled, we adjust cliff distance only based on hard ratio
-            #     mean_distance = self.hard_ratio * cliff_max_distance + (1 - self.hard_ratio) * cliff_min_distance
-            # cliff0_center = np.clip(np.random.normal(0., 0.05) + 0.1 - mean_distance / 2, 0.1 - cliff_max_distance / 2, 0.1 - cliff_min_distance / 2)
-            # cliff1_center = np.clip(np.random.normal(0., 0.05) + 1.1 + mean_distance / 2, 1.1 + cliff_min_distance / 2, 1.1 + cliff_max_distance / 2)
-            # TODO: also adapt smooth_coef / smooth_threshold
-            # self.cur_smooth_threshold = np.clip(self.smooth_threshold * (1 - 1.5 * self.hard_ratio), 0.03, self.smooth_threshold)
-            if self.cl_type == "adapt_hard":
-                # Original version
-                # gap = 0.1 if (self.env.random_size and self.env.mode == "long") else 0.2
-                gap = 2 * self.env.cliff_size[1]
-                if self.adaptive_number:
-                    if cur_num_blocks < self.cur_max_blocks or np.random.uniform() < self.hard_ratio[cur_num_blocks - 1]:
-                        # This is hard case. For all previous ``solved'' cases, we stick to hard config.
-                        # For the current working cases, we set according to hard_ratio.
-                        _cliff_distance = np.random.uniform(cliff_max_distance - gap, cliff_max_distance)
-                    else:
-                        _cliff_distance = np.random.uniform(cliff_min_distance, cliff_max_distance)
-                else:
-                    # In case of uniform sample, we adapt cliff distance only based on hard_ratio
-                    if np.random.uniform() < self.hard_ratio[cur_num_blocks - 1]:
-                        _cliff_distance = np.random.uniform(cliff_max_distance - gap, cliff_max_distance)
-                    else:
-                        _cliff_distance = np.random.uniform(cliff_min_distance, cliff_max_distance)
-            elif self.cl_type == "adapt_mean":
-                if self.adaptive_number and cur_num_blocks < self.cur_max_blocks:
-                    _cliff_distance = np.random.uniform(cliff_max_distance - 2 * self.env.cliff_size[1], cliff_max_distance)
-                else:
-                    mean_distance = cliff_max_distance * self.hard_ratio[cur_num_blocks - 1] + cliff_min_distance * (1 - self.hard_ratio[cur_num_blocks - 1])
-                    _cliff_distance = np.clip(np.random.normal(mean_distance, 2 * self.env.cliff_size[1]), cliff_min_distance, cliff_max_distance)
+            gap = 2 * self.env.cliff_size[1]
+            # adapt cliff distance based on hard_ratio
+            if np.random.uniform() < self.hard_ratio[cur_num_blocks - 1]:
+                _cliff_distance = np.random.uniform(cliff_max_distance - gap, cliff_max_distance)
             else:
-                raise NotImplementedError
-            _noise = np.random.uniform(-0.5, 0.5) if self.center_y else np.random.uniform(-self.env.cliff_size[1], self.env.cliff_size[1])
-            # cliff0_center = 0.1 - _cliff_distance / 2 + _noise
-            # cliff1_center = 1.1 + _cliff_distance / 2 + _noise
+                _cliff_distance = np.random.uniform(cliff_min_distance, cliff_max_distance)
+            _noise = np.random.uniform(-self.env.cliff_size[1], self.env.cliff_size[1])
             cliff0_center = 0.6 - self.env.cliff_size[2] - _cliff_distance / 2 + _noise
             cliff1_center = 0.6 + self.env.cliff_size[2] + _cliff_distance / 2 + _noise
 
-            # print('cliff0_center', cliff0_center, 'cliff1_center', cliff1_center)
             self.env.set_cliff_centers(cliff0_center, cliff1_center)
             self.env.reset()
         self.step_counter = 0
-        self.previous_reward = 0.
         obs = self._get_obs()
-        # Initial state should be dummy state. This is no longer true if reset from replay buffer.
-        # if not (self.env.cur_num_blocks == 4 and self.env.random_size):
-        #     for i in range(self.env.cur_num_blocks):
-        #         assert np.linalg.norm(obs[i * self.object_dim: i * self.object_dim + 3] + np.ones(3)) < 1e-5, obs
         if self.primitive is not None:
             self.primitive.align_at_reset()
         return obs
 
     def _calculate_skyline(self):
         # TODO: we must make sure the robot arm does not conflict with skyline detection
-        # old_robot_pos, old_robot_orn = self.env.robot.get_base()
-        # new_robot_pos = np.array(old_robot_pos) - np.array([2., 0., 0.])
-        # self.env.robot.reset_base(new_robot_pos)
-        # if self.env._render:
-        #     time.sleep(0.05)
         if self.env.random_size:
             num_ray = int(round((self.env.cliff1_boundary - self.env.cliff0_boundary) / 0.02))
         else:
@@ -757,9 +601,6 @@ class BulletBridgeConstructionHigh(gym.Env):
             assert ray_dist > 0, (ray_dist, self.env.cliff0_boundary, self.env.cliff1_boundary, start_point,
                                   self.env.p.getBasePositionAndOrientation(obj_id), obj_id, link_id, hit_pos)
         skyline[:num_ray] = np.linalg.norm(ray_array) - np.array(ray_dist_buf)
-        # self.env.robot.reset_base(old_robot_pos, old_robot_orn)
-        # if self.env._render:
-        #     time.sleep(0.05)
         return skyline, collision_id_buf
 
     def get_state(self):
@@ -785,10 +626,6 @@ class BulletBridgeConstructionHigh(gym.Env):
         return dict(mj_state=mj_state, other_state=other_state)
 
     def set_state(self, state_dict):
-        # self.env.body_cliff0 = state_dict["other_state"]["id_cliff0"]
-        # self.env.body_cliff1 = state_dict["other_state"]["id_cliff1"]
-        # self.env.body_blocks = state_dict["other_state"]["id_blocks"]
-        # self.env.p.restoreState(fileName=state_dict['mj_state'])
         self.env.p.resetBasePositionAndOrientation(self.env.body_cliff0, state_dict["other_state"]["cliff0_pos"],
                                                    state_dict["other_state"]["cliff0_orn"])
         self.env.p.resetBasePositionAndOrientation(self.env.body_cliff1, state_dict["other_state"]["cliff1_pos"],
@@ -826,24 +663,12 @@ class BulletBridgeConstructionHigh(gym.Env):
     def _get_obs(self):
         raw_obs = self.env.get_obs()
         objects_obs = raw_obs[self.env.robot_dim: self.env.robot_dim + self.env.object_dim * self.num_blocks]
-        # TODO: add parameterized shape to object_obs
         objects_obs = np.concatenate([objects_obs[self.env.object_dim * i: self.env.object_dim * (i + 1)] for i in range(self.num_blocks)])
-        # objects_obs = np.concatenate([np.concatenate([objects_obs[self.env.object_dim * i: self.env.object_dim * i + 3],
-        #                                               objects_obs[self.env.object_dim * i + 6: self.env.object_dim * (i + 1)]])
-        #                               for i in range(self.num_blocks)])  # Each object dim 16
         if self.object_dim is None:
             self.object_dim = len(objects_obs) // self.num_blocks
-        # TODO: add cliff as objects
+        # add cliff as objects
         cliffs_objects_obs = raw_obs[self.env.robot_dim + self.env.object_dim * self.num_blocks:]
         obs = np.concatenate([objects_obs, cliffs_objects_obs])
-        if self.observe_skyline:
-            # Add skyline
-            skyline = self._calculate_skyline()
-            obs = np.concatenate([obs, skyline])
-        if self.include_time:
-            obs = np.concatenate([obs, [self.step_counter]])
-        # else:
-        #     obs = np.concatenate([objects_obs, cliffs_objects_obs])
         return obs
     
     def get_obs(self):
@@ -870,6 +695,7 @@ class BulletBridgeConstructionHigh(gym.Env):
         if index == 1:
             return np.array([1.3, self.env.cliff1_center, self.env.cliff_size[1]])
         raise RuntimeError
+
     def get_block_reset_pos(self, index: int):
         return self.env.block_reset_pos[index].copy()
 
@@ -878,9 +704,6 @@ class BulletBridgeConstructionHigh(gym.Env):
     
     def set_force_scale(self, scale):
         self.cur_force_scale = scale
-
-    def set_stable_reward_coef(self, coef):
-        self.cur_stable_reward_coef = coef
 
     def set_success_rate(self, detailed_sr):
         self.detailed_sr = detailed_sr
@@ -935,10 +758,9 @@ class BulletBridgeConstructionHigh(gym.Env):
             assert 0 <= idx < self.env.cur_num_blocks
 
         if idx >= 0:
-            y_pos = (self.env.cliff0_boundary + self.env.cliff1_boundary) / 2 if self.center_y else 0.6
+            y_pos = 0.6
             z_scale = self.env._cliff_height if self.narrow_z else self.action_scale
             if self.action_2d:
-                # target_pos = np.concatenate([[0.], action[1: 3]]) * action_scale + np.array([1.3, 0.6, 0.2])
                 target_pos = np.array([1.3, y_pos + action[1] * self.action_scale, 2 * self.env._cliff_height + action[2] * z_scale])
                 _theta_div_pi = (self.rotation_range[1] - self.rotation_range[0]) / (2 * np.pi) * action[3] \
                                 + (self.rotation_range[0] + self.rotation_range[1]) / (2 * np.pi)
@@ -948,28 +770,16 @@ class BulletBridgeConstructionHigh(gym.Env):
                 target_pos[0] = 1.3
                 target_orn = action[4: 7]  # (alpha/pi, beta/pi, theta/pi)
                 target_orn[0: 2] = 0.
-            # clip penetration actions?
             out_of_reach = False
-            # TODO: stack out-of-reach objects neatly to some specific location
             if _out_of_reach(target_pos, self.get_cliff_pos(0), self.get_cliff_pos(1), self.env.block_size[idx],
                              self.env.cliff_size, cos_theta=abs(np.cos(target_orn[2] * np.pi))):
                 target_pos = self.get_block_reset_pos(idx)
-                # target_orn = quat2euler(self.get_block_reset_orn(idx))
-                # TODO: convert to axis-angle. axis=
-                # target_orn = np.array([0.5, 0., 0.5])
                 target_orn = np.array([0., 0., 0.])
-                # target_pos = np.array([1.3, self.env.cliff0_center, 0.5])
-                # target_orn = np.array([0., 0., 0.])
                 out_of_reach = True
             return idx, target_pos, target_orn, out_of_reach
         return None
 
     def step(self, action, render=False):
-        # TODO: there is slight memory leakage
-        # action: idx, target position and target orientation of one object
-        # Implement this high level action with hard-coded low level control
-
-        # Calculate skyline before stepping the simulator
         info = {'skyline': self._calculate_skyline()[0], 'restart_from_buffer': self.restart_from_buffer}
         ret = self.convert_action(action)
         start_pos = np.zeros((self.env.cur_num_blocks, 3))
@@ -979,7 +789,6 @@ class BulletBridgeConstructionHigh(gym.Env):
         if ret is not None:
             idx, target_pos, target_orn, out_of_reach = ret
             info['out_of_reach'] = out_of_reach
-            cur_pos, cur_orn = self.env.p.getBasePositionAndOrientation(self.env.body_blocks[idx])
 
             alpha, beta, theta = target_orn * np.pi
             obj_quaternion = np.array([np.cos(alpha) * np.cos(beta) * np.sin(theta / 2),
@@ -991,21 +800,10 @@ class BulletBridgeConstructionHigh(gym.Env):
                 info['low_level_result'] = 0
             if self.primitive is None or \
                     (self.adaptive_primitive and np.random.uniform() > self.detailed_sr[self.env.cur_num_blocks - 1]):
-                # TODO: don't allow actions in collision. Penalize value drop.
                 # Teleport object
                 info['low_level_path'] = {"teleport_idx": idx, "teleport_pos": target_pos,
                                           "teleport_quat": obj_quaternion}
-                # state_id = self.env.p.saveState()
                 self.env.p.resetBasePositionAndOrientation(self.env.body_blocks[idx], target_pos, obj_quaternion)
-                # self.env.p.stepSimulation()
-                # in_collision = False
-                # for body in self.env.body_blocks + [self.env.body_cliff0, self.env.body_cliff1]:
-                #     if body != self.env.body_blocks[idx] and \
-                #             len(self.env.p.getClosestPoints(self.env.body_blocks[idx], body, 0.001)) != 0:
-                #         in_collision = True
-                #         self.env.p.restoreState(stateId=state_id)
-                #         break
-                # self.env.p.removeState(state_id)
                 start_pos_and_rot = [self.env.p.getBasePositionAndOrientation(self.env.body_blocks[i]) for i in
                                      range(self.env.cur_num_blocks)]
                 start_pos, start_rot = zip(*start_pos_and_rot)
@@ -1022,12 +820,6 @@ class BulletBridgeConstructionHigh(gym.Env):
                                       range(self.env.cur_num_blocks)]
                 stable_pos, stable_rot = zip(*stable_pos_and_rot)
                 stable_pos, stable_rot = map(lambda x: np.asarray(x), [stable_pos, stable_rot])
-                if not np.all(stable_pos[:, -1] < 1 - self.env._block_thickness):
-                    img = self.env.render(mode="rgb_array")
-                    import matplotlib.pyplot as plt
-                    plt.imsave("debug.png", img)
-                # assert np.all(stable_pos[:, -1] < 1 - self.env._block_thickness), (action, target_pos, target_orn,
-                # "start", start_pos, start_rot, "stable", stable_pos, stable_rot, self.env.block_size)
             else:
                 _state = self.env.p.saveState()
                 res, path = self.primitive.move_one_object(idx, target_pos, obj_quaternion)
@@ -1047,15 +839,13 @@ class BulletBridgeConstructionHigh(gym.Env):
                                                          self.env.p.POSITION_CONTROL, servo_angles)
                     self.env.p.stepSimulation()
                 self.env.p.removeState(_state)
-        # temp_state = self.env.p.saveState()
         else:
             if self.primitive:
                 info.update({'low_level_result': 0,
                              "action_pos": np.array([-1, -1, -1]), "action_quat": np.array([-1, -1, -1, -1])
                              })
-        info.update({'cur_num_objects': self.get_cur_num_objects(), 'previous': self.previous_reward})
+        info.update({'cur_num_objects': self.get_cur_num_objects()})
         reward = self.compute_reward(info, start_pos, start_rot, stable_pos, stable_rot, render=render)
-        # self.env.p.removeState(temp_state)
         done = False
         info.update({'next_skyline': self._calculate_skyline()[0]})
         self.step_counter += 1
@@ -1086,13 +876,11 @@ class BulletBridgeConstructionHigh(gym.Env):
                                              self.env.block_size[i], self.env.cliff_size,
                                              cos_theta=abs(quat_rot_vec(start_rot[i], np.array([0., 1., 0.]))[1]))
                                for i in range(self.env.cur_num_blocks)])
-        ratio_used_blocks = np.sum(~dummy_mask) / self.env.cur_num_blocks
         # Distance between two quaternions
         d_pos = [np.linalg.norm(start_pos[i] - stable_pos[i]) for i in np.where(dummy_mask == 0)[0]]
         d_rot = [2 * np.arccos(np.clip(quat_diff(start_rot[i], stable_rot[i])[-1], -1, 1)) for i in np.where(dummy_mask == 0)[0]]
         mean_dpos = np.mean(d_pos) if len(d_pos) else 0
         mean_drot = np.mean(d_rot) if len(d_rot) else 0
-        stable_penalty = (-mean_dpos - self.rotation_penalty_coef * mean_drot)  # tweak coefficient
         info['position_shift'] = mean_dpos
         info['rotation_shift'] = mean_drot
         # Run ray collision experiment
@@ -1111,40 +899,12 @@ class BulletBridgeConstructionHigh(gym.Env):
             if collision_geoms[ray_idx] in building_blocks_id and skyline[ray_idx] > self.test_threshold - 0.01:
                 n_construction += 1
             cur_height += min(skyline[ray_idx], self.test_threshold) / len(collision_geoms)
-        ray_dist_diff = np.abs(skyline[:len(collision_geoms) - 1] - skyline[1: len(collision_geoms)])
-        ray_dist_diff = np.concatenate([[np.abs(skyline[0] - self.test_threshold)], ray_dist_diff,
-                                        [np.abs(skyline[len(collision_geoms) - 1] - self.test_threshold)]])
 
         success = (n_construction == num_ray)
-        if success:
-            smooth_bonus = np.clip(self.smooth_max - np.sum(ray_dist_diff), 0., self.smooth_max)
-            nonused_blocks_bonus = 1 - ratio_used_blocks
-        else:
-            smooth_bonus = 0
-            nonused_blocks_bonus = 0
-        #### End experiment ####
-        if self.env.random_size:
-            construction_reward = n_construction / round(sum([2 * self.env.block_size[i][1] for i in
-                                                              range(self.env.cur_num_blocks // 2,
-                                                                    self.env.cur_num_blocks)]) / 0.02)
-        else:
-            construction_reward = n_construction / (
-                        2 * self.env.cur_num_blocks)  # Since on average we cast two rays on each std size block
-        # assert len(ray_dist_buf) == num_ray
-        height_reward = cur_height
-        reward = self.cons_coef * construction_reward + self.height_coef * height_reward
-        self.previous_reward = reward
-        if self.reward_type == "incremental":  # TODO: think about value of incremental reward
-            reward -= info['previous']
         info['construction'] = n_construction / num_ray
-        # info['skyline'] = skyline
         info['remaining_height'] = cur_height
-        info['ratio_used_blocks'] = ratio_used_blocks
-        info['stable_penalty'] = stable_penalty
-        info['smooth_bonus'] = smooth_bonus
         info['is_success'] = success
-        return reward + self.cur_stable_reward_coef * stable_penalty + self.smooth_coef * smooth_bonus \
-               + self.cost_coef * nonused_blocks_bonus
+        return 0.0
 
     def render(self, mode='human'):
         width = height = 500
@@ -1155,6 +915,7 @@ class BulletBridgeConstructionHigh(gym.Env):
 
     def get_hard_ratio(self):
         return self.hard_ratio
+
 
 def convert_symmetric_quat(quat):
     quat = np.array(quat)
@@ -1188,33 +949,4 @@ def test_raycast():
     print(res)
     res = my_p.rayTest([-0.5, 0.3, 1.0], [-0.5, 0.3, -0.05])
     print(res)
-    time.sleep(5)
-
-
-if __name__ == "__main__":
-    env = BulletBridgeConstructionHigh(7, random_size=True, random_mode="long", adaptive_number=False,
-                                       cliff_thickness=0.1, block_thickness=0.025, cliff_height=0.1,
-                                       render=True, action_scale=0.6, rotation_range=(-0.5 * np.pi, 0.5 * np.pi),
-                                       skyline_dim=38, center_y=False)
-    obs = env.reset()
-    action = np.array([0, 0., -1., -1.])
-    env.step(action)
-    action = np.array([1, 0., 0.8, 0.])
-    env.step(action)
-    time.sleep(2)
-    exit()
-    state_dicts = []
-    for i in range(5):
-        obs = env.reset()
-        print("reset obs", obs)
-        for _ in range(1):
-            action = env.action_space.sample()
-            action[0] = np.random.randint(0, env.get_cur_num_objects())
-            action[1] = 0.
-            print("action", action)
-            env.step(action, render=True)
-        state_dict = env.get_state()
-        state_dicts.append(state_dict)
-    env.set_state(state_dicts[2])
-    print(env.get_obs())
     time.sleep(5)

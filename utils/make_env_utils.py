@@ -33,14 +33,8 @@ def make_env(env_id, rank=0, seed=0, max_episode_steps=100, log_dir=None, done_w
     return env
 
 
-def get_env_kwargs(env_id, horizon=50, stable_reward_coef=1.0, rotation_penalty_coef=0.1,
-                   height_coef=1.0, reward_type="onestep", adaptive_number=True,
-                   random_size=False, include_time=True, smooth_coef=0.0, min_num_blocks=3,
-                   cost_coef=0.0, smooth_max=0.2, cl_type="adapt_hard", discrete_height=False,
-                   observe_skyline=False, skyline_dim=20, random_mode="split", action_scale=0.4, center_y=False,
-                   cons_coef=1.0, rotation_low=-1., rotation_high=1., restart_rate=0., noop=False,
-                   robot=None, friction_low=0.25, friction_high=0.5, force_scale=0,
-                   adaptive_primitive=False):
+def get_env_kwargs(env_id, horizon=50, random_size=False, min_num_blocks=3, discrete_height=False, random_mode="split",
+                   action_scale=0.4, restart_rate=0., noop=False, robot=None, force_scale=0, adaptive_primitive=False):
     if re.match("FetchBridge\d+Blocks", env_id) is not None or re.match("FetchBridgeBullet\d+Blocks", env_id) is not None:
         if re.match("FetchBridge\d+Blocks", env_id):
             num_blocks = int(re.search("(?<=FetchBridge)(\d+)", env_id).group(0))
@@ -55,24 +49,15 @@ def get_env_kwargs(env_id, horizon=50, stable_reward_coef=1.0, rotation_penalty_
             thickness = 0.025
             cliff_thickness = 0.1
         cliff_height = 0.1
-        env_kwargs = dict(max_episode_steps=horizon, num_blocks=num_blocks, stable_reward_coef=stable_reward_coef,
-                          rotation_penalty_coef=rotation_penalty_coef, height_coef=height_coef,
-                          reward_type=reward_type, adaptive_number=adaptive_number,
-                          random_size=random_size, include_time=include_time, smooth_coef=smooth_coef,
-                          min_num_blocks=min_num_blocks, cost_coef=cost_coef, smooth_max=smooth_max,
-                          cl_type=cl_type, discrete=discrete_height, observe_skyline=observe_skyline, skyline_dim=skyline_dim,
+        env_kwargs = dict(max_episode_steps=horizon, num_blocks=num_blocks,
+                          random_size=random_size,
+                          min_num_blocks=min_num_blocks,
+                          discrete=discrete_height,
                           random_mode=random_mode, action_scale=action_scale, block_thickness=thickness,
-                          center_y=center_y, cons_coef=cons_coef, rotation_range=(np.pi * rotation_low, np.pi * rotation_high),
                           restart_rate=restart_rate, cliff_thickness=cliff_thickness, cliff_height=cliff_height,
                           noop=noop, robot=robot,
-                          friction_range=(friction_low, friction_high), force_scale=force_scale,
+                          force_scale=force_scale,
                           adaptive_primitive=adaptive_primitive)
-    elif re.match("FetchBridgeScratch\d+Blocks", env_id) is not None:
-        num_blocks = int(re.search("(?<=FetchBridgeScratch)(\d+)", env_id).group(0))
-        env_kwargs = dict(max_episode_steps=horizon, num_blocks=num_blocks, stable_reward_coef=stable_reward_coef,
-                          rotation_penalty_coef=rotation_penalty_coef, height_coef=height_coef,
-                          reward_type=reward_type, adaptive_number=adaptive_number,
-                          random_size=random_size, include_time=include_time, smooth_coef=smooth_coef, min_num_blocks=min_num_blocks)
     # elif env_id == "FetchBridge3Blocks-v0":
     #     # TODO: parse number of objects
     #     env_kwargs = dict(max_episode_steps=horizon, num_blocks=3, stable_reward_coef=stable_reward_coef,

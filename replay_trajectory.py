@@ -15,7 +15,7 @@ def replay_sim(pkl_name):
     n_obj = len(meta["block_size"])
     print("meta info", meta)
     low_env = BulletBridgeConstructionLow(n_obj, random_size=True, discrete=True, mode="long", cliff_height=0.1,
-                                          render=True, need_visual=True, robot="xarm", friction_range=(0.5,0.5))
+                                          render=True, need_visual=True, robot="xarm")
 
     low_env.p.resetDebugVisualizerCamera(2.0, 0, -45, [1.0, 0.6, 0.0])
     low_env.p.resetBasePositionAndOrientation(low_env.body_cliff0, [1.3, meta["cliff0_center"], 0.1], [0.707, 0., 0., 0.707])

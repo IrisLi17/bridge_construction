@@ -92,7 +92,7 @@ class Policy(nn.Module):
 
 
 class PhasicPolicy(nn.Module):
-    def forward(self, obs, rnn_hxs=None, masks=None, forward_policy=True, forward_value=True, aux_phase=False, priority_head=False) -> (Any, Any):
+    def forward(self, obs, rnn_hxs=None, masks=None, forward_policy=True, forward_value=True, aux_phase=False) -> (Any, Any):
         raise NotImplementedError
 
     def forward_policy(self, x, rnn_hxs=None, masks=None) -> (Any, Any):
@@ -111,9 +111,9 @@ class PhasicPolicy(nn.Module):
     def act(self, x, rnn_hxs, masks, deterministic=False) -> (Any, Any, Any, Any):
         raise NotImplementedError
 
-    def get_value(self, x, rnn_hxs, masks, priority_head=False) -> Any:
+    def get_value(self, x, rnn_hxs, masks) -> Any:
         # TODO: leakage since we also forward the action?
-        value, _, rnn_hxs = self.forward(x, rnn_hxs, masks, forward_policy=False, forward_value=True, aux_phase=False, priority_head=priority_head)
+        value, _, rnn_hxs = self.forward(x, rnn_hxs, masks, forward_policy=False, forward_value=True, aux_phase=False)
         del rnn_hxs
         return value
 
