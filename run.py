@@ -22,7 +22,7 @@ def main(args):
                                 args.force_scale, args.adaptive_primitive)
     max_episode_steps = env_kwargs.get("max_episode_steps", None)
     env_kwargs.pop("max_episode_steps", None)
-    env_kwargs.update({"need_visual": args.play, "render": args.primitive and args.play, "primitive": args.primitive,
+    env_kwargs.update({"need_visual": args.play, "render": False, "primitive": args.primitive,
                        "compute_path": args.primitive and args.play,
                        })
 
@@ -108,26 +108,15 @@ def main(args):
         print(name, param.shape)
 
     if not args.play:
-        def callback(_locals, _globals):
-            cur_update = _locals['j']
-            if cur_update % 10 == 0:
-                save_path = os.path.join(log_dir, "model_%d.pt" % (cur_update // 10))
-                model.save(save_path)
         if args.load_path is not None:
-            if args.load_path.startswith("hdfs"):
-                os.system("hdfs dfs -get " + args.load_path + " pretrain_model.pt")
-                args.load_path = "pretrain_model.pt"
             model.load(args.load_path, eval=False)
-            # from test_lowlevel import check_lowlevel
-            # n_obj = 5
-            # check_lowlevel(env, policy, device, 10, n_obj)
-            # raise NotImplementedError
         from utils.curriculum_callback import curriculum_callback, always_hard_callback
         cb = always_hard_callback if args.no_cl else curriculum_callback
         model.learn(int(args.num_timesteps), cb)
         model.save(os.path.join(log_dir, 'final.pt'))
     else:
         from utils.evaluation import evaluate, get_success_rate, render_all_restart_states, evaluate_fixed_scene
+        env_kwargs["render"] = args.primitive and args.play
         eval_env = SubprocVecEnv([make_thunk(i) for i in range(1)], reset_when_done=False)
         eval_env = VecPyTorch(eval_env, device)
         for i in range(eval_env.get_attr("num_blocks")[0]):
@@ -139,169 +128,11 @@ def main(args):
             render_all_restart_states(eval_env)
             eval_env.env_method("add_restart_states", model_file["state_buffer"])
 
-        def log_eval(num_update, mean_eval_reward, file_name='eval.csv'):
-            if not os.path.exists(os.path.join(logger.get_dir(), file_name)):
-                with open(os.path.join(logger.get_dir(), file_name), 'a', newline='') as csvfile:
-                    csvwriter = csv.writer(csvfile, delimiter=',', quotechar=',', quoting=csv.QUOTE_MINIMAL)
-                    title = ['model_idx', 'mean_eval_reward']
-                    csvwriter.writerow(title)
-            with open(os.path.join(logger.get_dir(), file_name), 'a', newline='') as csvfile:
-                csvwriter = csv.writer(csvfile, delimiter=',', quotechar=',', quoting=csv.QUOTE_MINIMAL)
-                data = [num_update, mean_eval_reward]
-                csvwriter.writerow(data)
+        print("Load path", args.load_path)
+        model.load(args.load_path, eval=True)
 
-        if not args.load_path.endswith(".pt"):
-            for model_idx in range(61):
-                cmd = "hdfs dfs -get " + os.path.join(args.load_path, "model_%d.pt" % model_idx) + " " + log_dir
-                print(cmd)
-                os.system(cmd)
-                model_path = os.path.join(log_dir, "model_%d.pt" % model_idx)
-                model.load(model_path, eval=True)
-                n_eval_episode = 50
-                success_rate = get_success_rate(eval_env, policy, eval_env.get_attr("num_blocks")[0], n_eval_episode, device)
-                print("model", os.path.join(os.path.basename(args.load_path), "model_%d.pt" % model_idx), "eval success rate", success_rate)
-                log_eval(model_idx, success_rate)
-            cmd = "hdfs dfs -put -f " + os.path.join(logger.get_dir(), "eval.csv") + " " + args.load_path
-            print(cmd)
-            os.system(cmd)
-
-        else:
-            if args.load_path.startswith("hdfs"):
-                os.system("hdfs dfs -get " + args.load_path)
-                args.load_path = os.path.basename(args.load_path)
-            print("Load path", args.load_path)
-            model.load(args.load_path, eval=True)
-            # Debug
-            if "obs_buffer" in model_file and model_file['obs_buffer'] is not None:
-                obs_buffer = torch.from_numpy(model_file['obs_buffer']).float()
-                next_obs_buffer = torch.from_numpy(model_file['next_obs_buffer']).float()
-                reward_buffer = torch.from_numpy(model_file['reward_buffer'])
-                time_buffer = model_file['time_buffer']
-                priority_buf = model_file.get('priority_buffer', None)
-                encounter_buf = model_file.get("encounter_buffer", None)
-                print("encounter buffer", encounter_buf[:20])
-                with torch.no_grad():
-                    values = policy.get_value(obs_buffer, None, None)
-                    next_values = policy.get_value(next_obs_buffer, None, None)
-                    print(values.shape)
-                    critic = values[:, 0].squeeze(dim=-1)
-                    next_critic = next_values[:, 0].squeeze(dim=-1)
-                    v_std = torch.std(values, dim=1).squeeze(dim=-1)
-                    td_error = (reward_buffer.squeeze(dim=-1) + args.gamma * next_critic - critic).abs()
-                print(obs_buffer[1:3])
-                if priority_buf is not None:
-                    print(values[0], next_values[0], priority_buf[0])
-                import matplotlib.pyplot as plt
-                plt.plot(v_std, label="v_std")
-                plt.plot(critic, label="value")
-                plt.plot(next_critic, label="next value")
-                plt.plot(reward_buffer, label="reward")
-                plt.plot(td_error, label="td error")
-                if priority_buf is not None:
-                    plt.plot(priority_buf, label="priority")
-                plt.legend()
-                print(v_std[:10], v_std[-10:])
-                plt.show()
-                plt.hist(time_buffer)
-                plt.show()
-            initial_positions = [[0.9, 0.0, 0.025], [1.01655152, -0.02405042, 0.025], [0.9, 0.26, 0.025], [1.05, 0.26, 0.025], [0.9, 0.92, 0.025]]
-            object_sizes = [[0.025, 0.1, 0.025], [0.025, 0.1, 0.025], [0.025, 0.07, 0.025], [0.025, 0.12, 0.025], [0.025, 0.12, 0.025]]
-            cliff0_center = 0.35018731915555334
-            cliff1_center = 0.9999242197307323
-            initial_positions = [[0.9, 0.0, 0.025],
-                                 [1.05, 0.0, 0.025],
-                                 [0.9, 0.26, 0.025],
-                                 [1.05, 0.26, 0.025],
-                                 [0.9, 0.94, 0.025],
-                                 [1.05, 0.94, 0.025],
-                                 [0.9, 1.2, 0.025]]
-            # object_sizes = [[0.025, 0.1, 0.025],
-            #                 [0.025, 0.1, 0.025],
-            #                 [0.025, 0.1, 0.025],
-            #                 [0.025, 0.07, 0.025],
-            #                 [0.025, 0.07, 0.025],
-            #                 [0.025, 0.12, 0.025],
-            #                 [0.025, 0.12, 0.025], ]
-            # cliff0_center = 0.22868999
-            # cliff1_center = 1.06864712
-            # object_sizes = [[0.025, 0.1, 0.025],
-            #                 [0.025, 0.1, 0.025],
-            #                 [0.025, 0.1, 0.025],
-            #                 [0.025, 0.08, 0.025],
-            #                 [0.025, 0.07, 0.025],
-            #                 [0.025, 0.12, 0.025],
-            #                 [0.025, 0.12, 0.025],]
-            # cliff0_center = 0.09569973
-            # cliff1_center = 0.93559586
-            object_sizes = [[0.025, 0.1, 0.025],
-                            [0.025, 0.1, 0.025],
-                            [0.025, 0.1, 0.025],
-                            [0.025, 0.07, 0.025],
-                            [0.025, 0.07, 0.025],
-                            [0.025, 0.12, 0.025],
-                            [0.025, 0.12, 0.025],]
-            cliff0_center = 0.15867721
-            cliff1_center = 1.01334966
-            #################################
-            initial_positions = [[0.9, 0.0, 0.025],
-                                 [1.05, 0.0, 0.025],
-                                 [0.9, 0.26, 0.025],]
-            object_sizes = [[0.025, 0.1, 0.025],
-                            [0.025, 0.08, 0.025],
-                            [0.025, 0.12, 0.025]]
-            cliff0_center = 0.41130526
-            cliff1_center = 0.82560142
-            # cliff0_center = 0.31
-            # cliff1_center = 0.825
-            '''
-            ##################################
-            initial_positions = [[0.9, 0.0, 0.025], [1.05, 0.0, 0.025], [0.9, 0.26, 0.025],
-                                 [1.05, 0.26, 0.025], [0.9, 0.92, 0.025]]
-            object_sizes = [[0.025, 0.1, 0.025], [0.025, 0.1, 0.025], [0.025, 0.08, 0.025], [0.025, 0.12, 0.025],
-                            [0.025, 0.12, 0.025]]
-            cliff0_center = 0.33800634
-            cliff1_center = 0.95923873
-            ###################################
-            '''
-            initial_positions = [[0.9, 0.0, 0.025], [1.05, 0.0, 0.025],
-                                 [0.9, 0.26, 0.025], [1.05, 0.26, 0.025],
-                                 [0.9, 0.94, 0.025], [1.05, 0.94, 0.025],
-                                 [0.9, 1.2, 0.025]]
-            '''
-            object_sizes = [[0.025, 0.1, 0.025], [0.025, 0.1, 0.025], [0.025, 0.1, 0.025],
-                            [0.025, 0.08, 0.025], [0.025, 0.07, 0.025],
-                            [0.025, 0.12, 0.025], [0.025, 0.12, 0.025],]
-            cliff0_center = 0.15565677
-            cliff1_center = 0.91582905
-            
-            object_sizes = [[0.025, 0.1, 0.025], [0.025, 0.1, 0.025], [0.025, 0.1, 0.025],
-                            [0.025, 0.07, 0.025], [0.025, 0.09, 0.025],
-                            [0.025, 0.12, 0.025], [0.025, 0.12, 0.025], ]
-            cliff0_center = 0.09955115
-            cliff1_center = 0.98973008
-            '''
-            object_sizes = [[0.025, 0.1, 0.025], [0.025, 0.1, 0.025], [0.025, 0.1, 0.025],
-                            [0.025, 0.07702753, 0.025], [0.025, 0.06929047, 0.025],
-                            [0.025, 0.11481875, 0.025], [0.025, 0.11098686, 0.025]]
-            cliff0_center = 0.11598686
-            cliff1_center = 0.98745169
-
-            evaluate_fixed_scene(eval_env, initial_positions, object_sizes, cliff0_center, cliff1_center,
-                                 model.policy, device)
-            # n_episode = 5
-            # mean_eval_reward = evaluate(eval_env, model.policy, device, n_episode, 7, render=True,
-            #                             auxtask_name=model.auxiliary_task_name, auxtask=model.auxiliary_task)
-            # success_rate = get_success_rate(eval_env, policy, eval_env.get_attr("num_blocks")[0], n_episode, device, auto_reset=False)
-            # print("success_rate", success_rate)
-            # success_rate = get_success_rate(eval_env, policy, 5, n_episode, device, auto_reset=False)
-            # print("success_rate", success_rate)
-            # success_rate = get_success_rate(eval_env, policy, 3, n_episode, device, auto_reset=False)
-            # print("success_rate", success_rate)
-        # for n in range(3, eval_env.get_attr("num_blocks")[0] + 1):
-        #     success_rate = get_success_rate(eval_env, policy, device, n, n_episode)
-        #     print('success rate is', success_rate, 'for', n, 'objects')
-        # print(" Evaluation using {} episodes: mean reward {:.5f}\n".format(
-        #     n_episode, mean_eval_reward))
+        n_episode = 5
+        mean_eval_reward = evaluate(eval_env, model.policy, device, n_episode, 7, render=True)
 
 
 if __name__ == "__main__":

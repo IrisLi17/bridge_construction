@@ -384,7 +384,7 @@ class MultiDiscreteAttentionPolicy(PhasicPolicy):
             level_action_log_probs = [object_id_log_prob] + [dist_object_states[j].log_probs(action_object_states[:, j].detach())
                                       for j in range(level * self.continuous_action_shape,
                                                      (level + 1) * self.continuous_action_shape)]
-            log_probs.append(torch.sum(torch.stack(level_action_log_probs, dim=1), dim=1))  # TODO: bug, not exactly the same as that from act
+            log_probs.append(torch.sum(torch.stack(level_action_log_probs, dim=1), dim=1))
         log_probs = torch.stack(log_probs)  # (n_level, batch_size, 1)
         dist_entropy = None
         if compute_entropy:

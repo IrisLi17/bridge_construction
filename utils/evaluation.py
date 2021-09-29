@@ -20,8 +20,6 @@ def evaluate(eval_env: VecPyTorch, policy, device, n_episode, n_obj, render=Fals
     eval_success_encounter = [0]
     step_count = 0
     construction_reward = 0
-    position_shift = 0
-    rotation_shift = 0
 
     if os.path.exists("tmp"):
         shutil.rmtree("tmp")
@@ -73,10 +71,7 @@ def evaluate(eval_env: VecPyTorch, policy, device, n_episode, n_obj, render=Fals
             eval_success_encounter[-1] += info['is_success']
             construction_reward += info['construction']
             print('low level', info.get("low_level_result", -1), 'construction', info['construction'], 'is_success', info['is_success'],
-                  "smooth bonus", info["smooth_bonus"], "ratio_used", info["ratio_used_blocks"],
                   )
-            position_shift += info['position_shift']
-            rotation_shift += info['rotation_shift']
             low_level_paths.append(info.get("low_level_path", None))
             if 'episode' in info.keys():
                 with torch.no_grad():
@@ -102,7 +97,7 @@ def evaluate(eval_env: VecPyTorch, policy, device, n_episode, n_obj, render=Fals
                 eval_episode_rewards.append(info['episode']['r'])
                 print('success encounter', eval_success_encounter[-1], 'reward', eval_episode_rewards[-1],
                       'construction reward', construction_reward,
-                      'position shift', position_shift, 'rotation shift', rotation_shift)
+                      )
                 # TODO: dump low level path if any
                 import pickle
                 with open("low_level_paths.pkl", "wb") as f:
@@ -110,8 +105,6 @@ def evaluate(eval_env: VecPyTorch, policy, device, n_episode, n_obj, render=Fals
                 step_count += 1
                 eval_success_encounter.append(0)
                 construction_reward = 0
-                position_shift = 0
-                rotation_shift = 0
                 low_level_paths = []
                 obs = eval_env.reset()
                 print("reset obs", obs)
