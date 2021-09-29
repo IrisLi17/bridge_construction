@@ -4,6 +4,7 @@ Code for paper: Learning Design and Construction with Varying-Sized Materials vi
 ## Installation
 ```
 conda env create -f environment.yml
+conda activate bridge
 ```
 
 ## Play with a trained model
@@ -19,9 +20,8 @@ Visualize a model fine-tuned with a low-level motion generator:
 CUDA_VISIBLE_DEVICES=-1 python run.py \
 --env_id FetchBridgeBullet7Blocks-v1 --random_size --action_scale 0.6 --noop \
 --algo ppg --policy_arch shared --inf_horizon --auxiliary_task inverse_dynamics --robot xarm \
---load_path models/finetuned.pt --play
+--load_path models/finetuned.pt --play --primitive
 ```
-You can add ``--primitive`` if you want to execute the design instructions with the motion generator. Otherwise, the objects will be directly teleported to the instructed pose.
 
 ## Train a model by yourself
 Train a bridge design policy with prioritized memory reset (PMR) and auxiliary prediction task:
